@@ -1,0 +1,35 @@
+# Virtual Environment
+venv/
+.venv/
+
+# Environment Variables (NEVER commit this)
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Database
+*.db
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Pytest / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Alembic
+# alembic/versions/ is usually committed
