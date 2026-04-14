@@ -51,10 +51,7 @@ def get_orders(
     segment: Optional[str] = None
 ):
     """List orders with pagination, sorting, and global filters."""
-    query = db.query(Order).options(
-        joinedload(Order.product),
-        joinedload(Order.customer)
-    )
+    query = db.query(Order)
     
     # ─── Global Filters ───────────────────────────────────────────────────
     if start_date:
@@ -75,6 +72,12 @@ def get_orders(
         )
         
     total = query.count()
+    
+    # Add eager loading only for the actual data retrieval to save massive join costs on count
+    query = query.options(
+        joinedload(Order.product),
+        joinedload(Order.customer)
+    )
     
     # Sorting
     sort_attr = getattr(Order, sort_by, Order.created_at)

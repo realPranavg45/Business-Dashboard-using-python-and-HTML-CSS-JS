@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     
     # --- Gemini AI ---
     GEMINI_API_KEY: str = ""
-    GENAI_MODEL: str = "gemini-2.0-flash"
+    GENAI_MODEL: str = "gemini-2.5-flash"
 
     class Config:
         env_file = ".env"
