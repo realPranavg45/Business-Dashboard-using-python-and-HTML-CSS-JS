@@ -49,3 +49,4 @@ def login_access_token(
         ),
         "token_type": "bearer",
     }
+

@@ -37,7 +37,7 @@ class Order(Base):
     total_price = Column(Float, nullable=False)  # Snapshot of price at time of order
     status      = Column(Enum(OrderStatus), default=OrderStatus.PENDING, nullable=False)
     notes       = Column(String(500), nullable=True)
-    created_at  = Column(DateTime(timezone=True), server_default=func.now())
+    created_at  = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at  = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships for easy nav: order.customer.email, order.product.name
@@ -46,3 +46,4 @@ class Order(Base):
 
     def __repr__(self):
         return f"<Order id={self.id} customer_id={self.customer_id} status={self.status}>"
+

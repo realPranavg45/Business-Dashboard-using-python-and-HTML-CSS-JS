@@ -3,15 +3,17 @@ app/api/v1/endpoints/users.py
 ------------------------------
 User API endpoints for CRUD operations.
 """
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.models.user import User
 from app.schemas.user import UserCreate, UserResponse, UserUpdate
+from app.schemas.common import PaginatedResponse
 from app.api.deps import get_current_user, get_current_active_admin
 from app.core.security import get_password_hash
+from sqlalchemy import cast, String
 
 router = APIRouter()
 
@@ -21,11 +23,47 @@ def read_users_me(current_user: User = Depends(get_current_user)):
     """Get current user profile."""
     return current_user
 
-@router.get("/", response_model=List[UserResponse])
-def get_users(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_admin)):
-    """List all users."""
-    users = db.query(User).filter(User.is_active == True).all()
-    return users
+@router.get("/", response_model=PaginatedResponse[UserResponse])
+def get_users(
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user),
+    skip: int = 0,
+    limit: int = 100,
+    search: str = None,
+    sort_by: str = "id",
+    sort_order: str = "desc",
+    segment: Optional[str] = None
+):
+    """List users with pagination, search, and segment filtering."""
+    query = db.query(User).filter(User.is_active == True)
+    
+    if segment:
+        query = query.filter(User.segment == segment)
+    
+    if search:
+        search_filter = f"%{search}%"
+        query = query.filter(
+            (User.full_name.ilike(search_filter)) | 
+            (User.email.ilike(search_filter))
+        )
+        
+    total = query.count()
+    
+    # Sorting
+    sort_attr = getattr(User, sort_by, User.id)
+    if sort_order == "desc":
+        query = query.order_by(sort_attr.desc())
+    else:
+        query = query.order_by(sort_attr.asc())
+        
+    users = query.offset(skip).limit(limit).all()
+    
+    return {
+        "total": total,
+        "items": users,
+        "page": (skip // limit) + 1,
+        "limit": limit
+    }
 
 
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -85,3 +123,4 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: User 
     user.is_active = False
     db.commit()
     return None
+

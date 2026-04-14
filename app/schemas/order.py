@@ -43,6 +43,10 @@ class OrderResponse(BaseModel):
     status: OrderStatus
     notes: Optional[str]
     created_at: datetime
+    
+    # Nested objects for UI Enrichment
+    customer: Optional[UserResponse] = None
+    product: Optional[ProductResponse] = None
 
     class Config:
         from_attributes = True
@@ -52,3 +56,4 @@ class OrderResponse(BaseModel):
 class OrderDetailResponse(OrderResponse):
     customer: UserResponse
     product: ProductResponse
+

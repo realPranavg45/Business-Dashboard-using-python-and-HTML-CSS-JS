@@ -3,21 +3,23 @@ app/api/v1/endpoints/orders.py
 --------------------------------
 Order API endpoints.
 """
-from typing import List
+from typing import List, Optional
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.db.database import get_db
 from app.models.order import Order, OrderStatus
 from app.models.user import User
 from app.models.product import Product
 from app.schemas.order import OrderCreate, OrderUpdate, OrderResponse, OrderDetailResponse
+from app.schemas.common import PaginatedResponse
 from app.api.deps import get_current_user, get_current_active_admin
 
 router = APIRouter()
 
 
-from sqlalchemy import func, cast, Date
+from sqlalchemy import func, cast, Date, String
 
 @router.get("/analytics/revenue")
 def get_revenue_analytics(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -34,10 +36,61 @@ def get_revenue_analytics(db: Session = Depends(get_db), current_user: User = De
     )
     return [{"date": str(r.date), "revenue": r.daily_revenue} for r in results]
 
-@router.get("/", response_model=List[OrderResponse])
-def get_orders(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """List all orders."""
-    return db.query(Order).all()
+@router.get("/", response_model=PaginatedResponse[OrderResponse])
+def get_orders(
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user),
+    skip: int = 0,
+    limit: int = 100,
+    search: str = None,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    category: Optional[str] = None,
+    segment: Optional[str] = None
+):
+    """List orders with pagination, sorting, and global filters."""
+    query = db.query(Order).options(
+        joinedload(Order.product),
+        joinedload(Order.customer)
+    )
+    
+    # ─── Global Filters ───────────────────────────────────────────────────
+    if start_date:
+        query = query.filter(Order.created_at >= start_date)
+    if end_date:
+        query = query.filter(Order.created_at <= end_date)
+    if category:
+        query = query.join(Product).filter(Product.category == category)
+    if segment:
+        query = query.join(User, Order.customer_id == User.id).filter(User.segment == segment)
+    
+    # ─── Search Logic ─────────────────────────────────────────────────────
+    if search:
+        search_filter = f"%{search}%"
+        query = query.join(Product).filter(
+            (Product.name.ilike(search_filter)) | 
+            (cast(Order.status, String).ilike(search_filter))
+        )
+        
+    total = query.count()
+    
+    # Sorting
+    sort_attr = getattr(Order, sort_by, Order.created_at)
+    if sort_order == "desc":
+        query = query.order_by(sort_attr.desc())
+    else:
+        query = query.order_by(sort_attr.asc())
+        
+    orders = query.offset(skip).limit(limit).all()
+    
+    return {
+        "total": total,
+        "items": orders,
+        "page": (skip // limit) + 1,
+        "limit": limit
+    }
 
 
 @router.post("/", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
@@ -118,3 +171,4 @@ def cancel_order(order_id: int, db: Session = Depends(get_db), current_user: Use
             
     db.commit()
     return None
+

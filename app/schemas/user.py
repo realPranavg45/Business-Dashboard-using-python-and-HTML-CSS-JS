@@ -25,6 +25,7 @@ from pydantic import BaseModel, EmailStr, Field
 class UserBase(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=100, example="John Doe")
     email: EmailStr = Field(..., example="john@example.com")
+    segment: Optional[str] = Field("Individual", example="Enterprise")
 
 
 # ─── Create ───────────────────────────────────────────────────────────────────
@@ -45,6 +46,7 @@ class UserResponse(UserBase):
     id: int
     is_active: bool
     is_admin: bool
+    segment: str
     created_at: datetime
 
     class Config:
@@ -54,3 +56,4 @@ class UserResponse(UserBase):
 # ─── Internal ─────────────────────────────────────────────────────────────────
 class UserInDB(UserResponse):
     hashed_password: str  # Used internally, NEVER returned by any endpoint
+

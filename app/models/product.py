@@ -25,11 +25,12 @@ class Product(Base):
     name           = Column(String(200), nullable=False, index=True)
     description    = Column(Text, nullable=True)
     price          = Column(Float, nullable=False)
-    stock_quantity = Column(Integer, default=0, nullable=False)
+    cost_price     = Column(Float, nullable=True) # Used for margin simulation
+    stock_quantity = Column(Integer, default=0, nullable=False, index=True)
     category       = Column(String(100), nullable=True, index=True)
     sku            = Column(String(100), unique=True, nullable=True)  # Stock Keeping Unit
     is_active      = Column(Boolean, default=True, nullable=False)
-    created_at     = Column(DateTime(timezone=True), server_default=func.now())
+    created_at     = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at     = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationship: one product appears in many order items
@@ -37,3 +38,4 @@ class Product(Base):
 
     def __repr__(self):
         return f"<Product id={self.id} name={self.name} price={self.price}>"
+

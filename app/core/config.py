@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    
+    # --- Gemini AI ---
+    GEMINI_API_KEY: str = ""
+    GENAI_MODEL: str = "gemini-2.0-flash"
 
     class Config:
         env_file = ".env"
@@ -32,3 +36,4 @@ class Settings(BaseSettings):
 # Create a single, importable instance used throughout the app.
 # Usage: from app.core.config import settings
 settings = Settings()
+

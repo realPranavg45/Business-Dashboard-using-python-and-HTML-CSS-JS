@@ -8,7 +8,8 @@ from app.models.user import User
 from app.schemas.token import TokenPayload
 
 reusable_oauth2 = OAuth2PasswordBearer(
-    tokenUrl=f"/api/v1/login/access-token"
+    tokenUrl=f"/api/v1/login/access-token",
+    auto_error=False
 )
 
 def get_current_user(
@@ -18,8 +19,21 @@ def get_current_user(
     """
     Dependency that extracts the JWT token from the Authorization header,
     validates the signature inside, and pulls the corresponding user
-    from PostgreSQL. If anything fails, return a 403 HTTP error.
+    from PostgreSQL.
+
+    DEVELOPMENT BYPASS: If DEBUG=True and no token is provided, returns first admin.
     """
+    if not token:
+        if settings.DEBUG:
+            dev_user = db.query(User).filter(User.is_active == True).order_by(User.is_admin.desc()).first()
+            if dev_user:
+                return dev_user
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     try:
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
@@ -52,3 +66,4 @@ def get_current_active_admin(
             detail="The user doesn't have enough privileges",
         )
     return current_user
+

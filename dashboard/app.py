@@ -3,6 +3,8 @@ import pandas as pd
 import requests
 import sys
 import os
+import time
+import plotly.express as px
 
 # Ensure the root directory is accessible so we can import scripts directly
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -47,14 +49,11 @@ API_BASE_URL = "http://127.0.0.1:8000"
 
 # --- API Helper Functions ---
 def get_headers():
-    token = st.session_state.get("token")
-    if token:
-        return {"Authorization": f"Bearer {token}"}
     return {}
 
-def fetch_from_api(endpoint):
+def fetch_from_api(endpoint, params=None):
     try:
-        response = requests.get(f"{API_BASE_URL}{endpoint}", headers=get_headers(), timeout=2)
+        response = requests.get(f"{API_BASE_URL}{endpoint}", params=params, headers=get_headers(), timeout=5)
         if response.status_code == 200:
             return response.json()
         return []
@@ -64,6 +63,14 @@ def fetch_from_api(endpoint):
 def post_to_api(endpoint, payload):
     try:
         response = requests.post(f"{API_BASE_URL}{endpoint}", json=payload, headers=get_headers(), timeout=2)
+        return response.status_code, response.json()
+    except Exception as e:
+        return 500, {"detail": str(e)}
+
+def post_to_api_slow(endpoint, payload, timeout=60):
+    """Used for endpoints that may take longer (e.g. AI chat calls to Gemini)."""
+    try:
+        response = requests.post(f"{API_BASE_URL}{endpoint}", json=payload, headers=get_headers(), timeout=timeout)
         return response.status_code, response.json()
     except Exception as e:
         return 500, {"detail": str(e)}
@@ -100,17 +107,7 @@ def main():
         
     st.sidebar.markdown("---")
     
-    # Check Auth
-    if "token" not in st.session_state:
-        render_login_page()
-        return
-        
-    st.sidebar.button("Logout", on_click=lambda: st.session_state.pop("token"))
-    
-    nav_tabs = ["Dashboard", "Orders", "Products", "🧠 Intelligence"]
-    if st.session_state.get("is_admin", False):
-        nav_tabs.insert(3, "Users")
-        
+    nav_tabs = ["Dashboard", "Orders", "Products", "Users", "🧠 Intelligence", "💬 AI Assistant", "🟢 Live War Room"]
     nav_option = st.sidebar.radio("Navigation", nav_tabs)
     
     if nav_option == "Dashboard":
@@ -123,36 +120,10 @@ def main():
         render_users_page()
     elif nav_option == "🧠 Intelligence":
         render_intelligence_page()
-
-def render_login_page():
-    st.title("🔒 Secure Login")
-    st.write("Please authenticate to access the Business Dashboard.")
-    
-    with st.form("login_form"):
-        email = st.text_input("Email")
-        password = st.text_input("Password", type="password")
-        if st.form_submit_button("Login"):
-            try:
-                # OAuth2 expects form-encoded data, not JSON
-                res = requests.post(f"{API_BASE_URL}/api/v1/login/access-token", data={"username": email, "password": password})
-                if res.status_code == 200:
-                    token_data = res.json()
-                    st.session_state["token"] = token_data["access_token"]
-                    # Fetch profile to verify Admin standing
-                    user_res = requests.get(f"{API_BASE_URL}/api/v1/users/me", headers={"Authorization": f"Bearer {token_data['access_token']}"})
-                    if user_res.status_code == 200:
-                        st.session_state["is_admin"] = user_res.json().get("is_admin", False)
-                    else:
-                        st.session_state["is_admin"] = False
-                        
-                    st.success("Logged in successfully!")
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials.")
-            except Exception as e:
-                st.error("Network error attempting to login.")
-
-
+    elif nav_option == "💬 AI Assistant":
+        render_ai_assistant()
+    elif nav_option == "🟢 Live War Room":
+        render_war_room()
 
 def render_dashboard():
     st.title("📊 Business Analytics Overview")
@@ -189,8 +160,9 @@ def render_dashboard():
         revenue_data = fetch_from_api("/api/v1/orders/analytics/revenue")
         if revenue_data:
             df_rev = pd.DataFrame(revenue_data)
-            df_rev.set_index("date", inplace=True)
-            st.area_chart(df_rev["revenue"])
+            # Implement high-definition Plotly graphing framework!
+            fig = px.area(df_rev, x="date", y="revenue", title="Native Revenue Trajectories", color_discrete_sequence=['#4CAF50'])
+            st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No revenue data available yet.")
 
@@ -202,62 +174,102 @@ def render_dashboard():
 def render_products_page():
     st.title("📦 Products Inventory")
     
-    is_admin = st.session_state.get("is_admin", False)
-    if is_admin:
-        with st.expander("➕ Add New Product"):
-            with st.form("add_product_form", clear_on_submit=True):
-                col1, col2 = st.columns(2)
-                name = col1.text_input("Name")
-                category = col2.text_input("Category")
-                price = col1.number_input("Price ($)", min_value=0.01, value=10.00)
-                stock = col2.number_input("Stock Quantity", min_value=0, value=100)
-                sku = st.text_input("SKU")
-                desc = st.text_area("Description")
-                
-                if st.form_submit_button("Save Product"):
-                    payload = {
-                        "name": name,
-                        "description": desc,
-                        "price": price,
-                        "stock_quantity": int(stock),
-                        "category": category,
-                        "sku": sku
-                    }
-                    status, res = post_to_api("/api/v1/products/", payload)
-                    if status == 201:
-                        st.success("Product created successfully!")
-                    else:
-                        st.error(f"Failed to create product: {res}")
-    else:
-        st.info("Restricted Area: Please log in as an System Administrator to manage product inventory.")
+    # --- Filter UI ---
+    with st.expander("🔍 Filter & Sort Products"):
+        col1, col2, col3 = st.columns(3)
+        
+        # Get unique categories for the dropdown
+        all_prods = fetch_from_api("/api/v1/products/")
+        categories = sorted(list(set(p['category'] for p in all_prods if p.get('category'))))
+        category_filter = col1.selectbox("Category", ["All"] + categories)
+        
+        sort_by = col2.selectbox("Sort By", ["name", "price", "stock_quantity", "created_at"])
+        sort_order = col3.radio("Order", ["Ascending", "Descending"], horizontal=True)
+        
+        col4, col5 = st.columns(2)
+        min_stock = col4.number_input("Min Stock", min_value=0, value=0)
+        max_price = col5.number_input("Max Price ($)", min_value=0.0, value=1000.0)
+        
+        params = {
+            "sort_by": sort_by,
+            "sort_order": "asc" if sort_order == "Ascending" else "desc",
+            "min_stock": min_stock,
+            "max_price": max_price
+        }
+        if category_filter != "All":
+            params["category"] = category_filter
+
+    with st.expander("➕ Add New Product"):
+        with st.form("add_product_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            name = col1.text_input("Name")
+            category = col2.text_input("Category")
+            price = col1.number_input("Price ($)", min_value=0.01, value=10.00)
+            stock = col2.number_input("Stock Quantity", min_value=0, value=100)
+            sku = st.text_input("SKU")
+            desc = st.text_area("Description")
+            
+            if st.form_submit_button("Save Product"):
+                payload = {
+                    "name": name,
+                    "description": desc,
+                    "price": price,
+                    "stock_quantity": int(stock),
+                    "category": category,
+                    "sku": sku
+                }
+                status, res = post_to_api("/api/v1/products/", payload)
+                if status == 201:
+                    st.success("Product created successfully!")
+                else:
+                    st.error(f"Failed to create product: {res}")
             
     st.markdown("### Current Products")
-    products = fetch_from_api("/api/v1/products/")
+    products = fetch_from_api("/api/v1/products/", params=params)
     if products:
         st.dataframe(pd.DataFrame(products), width="stretch", hide_index=True)
         
-        if is_admin:
-            st.markdown("### 🔄 Update Stock Quantity")
-            with st.form("update_stock_form"):
-                prod_options = {f"{p['name']} (Current Stock: {p['stock_quantity']})": p['id'] for p in products}
-                selected_prod = st.selectbox("Select Product", options=list(prod_options.keys()))
-                new_stock = st.number_input("New Stock Quantity", min_value=0, value=0)
-                
-                if st.form_submit_button("Update Stock"):
-                    payload = {"stock_quantity": int(new_stock)}
-                    status_code, res = patch_to_api(f"/api/v1/products/{prod_options[selected_prod]}", payload)
-                    if status_code == 200:
-                        st.success("Stock updated successfully!")
-                        st.rerun()
-                    else:
-                        st.error(f"Failed to update stock: {res}")
+        st.markdown("### 🔄 Update Stock Quantity")
+        with st.form("update_stock_form"):
+            prod_options = {f"{p['name']} (Current Stock: {p['stock_quantity']})": p['id'] for p in products}
+            selected_prod = st.selectbox("Select Product", options=list(prod_options.keys()))
+            new_stock = st.number_input("New Stock Quantity", min_value=0, value=0)
+            
+            if st.form_submit_button("Update Stock"):
+                payload = {"stock_quantity": int(new_stock)}
+                status_code, res = patch_to_api(f"/api/v1/products/{prod_options[selected_prod]}", payload)
+                if status_code == 200:
+                    st.success("Stock updated successfully!")
+                    st.rerun()
+                else:
+                    st.error(f"Failed to update stock: {res}")
     else:
-        st.info("No products found.")
+        st.info("No products found matching those filters.")
 
 
 def render_users_page():
     st.title("👥 Users Management")
     
+    # --- Filter UI ---
+    with st.expander("🔍 Filter & Search Users"):
+        col1, col2 = st.columns([2, 1])
+        search_query = col1.text_input("Search by Name or Email")
+        role_filter = col2.selectbox("Role", ["All", "Admin", "Customer"])
+        
+        col3, col4 = st.columns(2)
+        sort_by = col3.selectbox("Sort By", ["full_name", "email", "created_at"])
+        sort_order = col4.radio("Order", ["Ascending", "Descending"], horizontal=True, key="user_sort")
+        
+        params = {
+            "search": search_query if search_query else None,
+            "sort_by": sort_by,
+            "sort_order": "asc" if sort_order == "Ascending" else "desc"
+        }
+        if role_filter == "Admin":
+            params["is_admin"] = True
+        elif role_filter == "Customer":
+            params["is_admin"] = False
+
     with st.expander("➕ Add New User"):
         with st.form("add_user_form", clear_on_submit=True):
             full_name = st.text_input("Full Name")
@@ -280,7 +292,7 @@ def render_users_page():
                     st.error(f"Failed to create user: {res}")
 
     st.markdown("### Current Users")
-    users = fetch_from_api("/api/v1/users/")
+    users = fetch_from_api("/api/v1/users/", params=params)
     if users:
         df = pd.DataFrame(users)
         # Drop password hashes from UI
@@ -288,12 +300,34 @@ def render_users_page():
             df = df.drop(columns=["hashed_password"])
         st.dataframe(df, width="stretch", hide_index=True)
     else:
-        st.info("No users found.")
+        st.info("No users found matching those filters.")
 
 
 def render_orders_page():
     st.title("🛒 Orders Processing")
     
+    # --- Filter UI ---
+    with st.expander("🔍 Filter & Sort Orders"):
+        col1, col2, col3 = st.columns(3)
+        status_filter = col1.selectbox("Status", ["All", "pending", "confirmed", "shipped", "delivered", "cancelled"])
+        sort_by = col2.selectbox("Sort By", ["created_at", "total_price", "id"])
+        sort_order = col3.radio("Order", ["Descending", "Ascending"], horizontal=True)
+        
+        col4, col5 = st.columns(2)
+        start_date = col4.date_input("Start Date", value=None)
+        end_date = col5.date_input("End Date", value=None)
+        
+        params = {
+            "sort_by": sort_by,
+            "sort_order": "desc" if sort_order == "Descending" else "asc"
+        }
+        if status_filter != "All":
+            params["status"] = status_filter
+        if start_date:
+            params["start_date"] = start_date.isoformat()
+        if end_date:
+            params["end_date"] = end_date.isoformat()
+            
     users = fetch_from_api("/api/v1/users/")
     products = fetch_from_api("/api/v1/products/")
     
@@ -327,29 +361,25 @@ def render_orders_page():
                             st.error(f"Failed to create order: {res}")
 
     st.markdown("### All Orders")
-    orders = fetch_from_api("/api/v1/orders/")
+    orders = fetch_from_api("/api/v1/orders/", params=params)
     if orders:
         st.dataframe(pd.DataFrame(orders), width="stretch", hide_index=True)
         
-        is_admin = st.session_state.get("is_admin", False)
-        if is_admin:
-            st.markdown("### Update Order Status")
-            with st.form("update_status_form"):
-                order_options = {f"Order #{o['id']} (Current: {o.get('status', 'pending')})": o['id'] for o in orders}
-                selected_order = st.selectbox("Select Order", options=list(order_options.keys()))
-                new_status = st.selectbox("New Status", ["pending", "confirmed", "shipped", "delivered", "cancelled"])
-                
-                if st.form_submit_button("Update Status"):
-                    payload = {"status": new_status}
-                    status_code, res = patch_to_api(f"/api/v1/orders/{order_options[selected_order]}/status", payload)
-                    if status_code == 200:
-                        st.success("Order status updated! Refreshing...")
-                    else:
-                        st.error(f"Failed to update status: {res}")
-        else:
-            st.info("Restricted Area: Only Administrators can mutate order fulfillment status.")
+        st.markdown("### Update Order Status")
+        with st.form("update_status_form"):
+            order_options = {f"Order #{o['id']} (Current: {o.get('status', 'pending')})": o['id'] for o in orders}
+            selected_order = st.selectbox("Select Order", options=list(order_options.keys()))
+            new_status = st.selectbox("New Status", ["pending", "confirmed", "shipped", "delivered", "cancelled"])
+            
+            if st.form_submit_button("Update Status"):
+                payload = {"status": new_status}
+                status_code, res = patch_to_api(f"/api/v1/orders/{order_options[selected_order]}/status", payload)
+                if status_code == 200:
+                    st.success("Order status updated! Refreshing...")
+                else:
+                    st.error(f"Failed to update status: {res}")
     else:
-        st.info("No orders found.")
+        st.info("No orders found matches those filters.")
 
 def render_intelligence_page():
     st.title("🧠 Smart Insights Engine")
@@ -368,6 +398,17 @@ def render_intelligence_page():
             st.success(alert)
         else:
             st.info(alert)
+            
+    low_stock = insights.get("low_stock_items", [])
+    if low_stock:
+        if len(low_stock) <= 2:
+            st.error("⚠️ **Low Stock Alert:**")
+            for item in low_stock:
+                st.write(f"- **{item['name']}** (Only {item['stock_quantity']} left)")
+        else:
+            with st.expander(f"⚠️ Critical Stock Alert: {len(low_stock)} products need restocking!"):
+                for item in low_stock:
+                    st.write(f"- **{item['name']}** (Stock: {item['stock_quantity']})")
             
     col1, col2 = st.columns(2)
     with col1:
@@ -415,9 +456,30 @@ def render_intelligence_page():
         styled_df = df_lowest[['sku', 'name', 'category', 'price', 'stock_quantity']].style.apply(highlight_inventory, axis=1)
         st.dataframe(styled_df, width="stretch", hide_index=True)
         
-        st.write("**Inventory Layout (All Products)**")
-        chart_data = df_prod[['name', 'stock_quantity']].set_index('name')
-        st.bar_chart(chart_data)
+        st.write("**Deep Inventory Classification**")
+        colA, colB = st.columns(2)
+        
+        # 🟢 Apply Interactivity Filters for Plotly Graphing!
+        st.sidebar.markdown("### 📊 Plotly Cross-Filters")
+        cat_options = list(df_prod['category'].unique())
+        selected_category = st.sidebar.multiselect("Filter Inventory by Category", cat_options, default=cat_options)
+        
+        # Cross-filter the dataframe reactively before passing into Plotly instances
+        filtered_df = df_prod[df_prod['category'].isin(selected_category)]
+        
+        with colA:
+            if not filtered_df.empty:
+                fig_bar = px.bar(filtered_df, x='name', y='stock_quantity', color='category', title="Geographic Category Distribution")
+                st.plotly_chart(fig_bar, use_container_width=True)
+            else:
+                st.info("Select a category in the sidebar to render bar charts.")
+            
+        with colB:
+            if not filtered_df.empty:
+                fig_pie = px.pie(filtered_df, names='category', values='stock_quantity', hole=0.3, title="Category Volume Ratios")
+                st.plotly_chart(fig_pie, use_container_width=True)
+            else:
+                st.info("Select a category in the sidebar to render pie mappings.")
     else:
         st.info("No inventory data found across the system.")
         
@@ -440,6 +502,189 @@ def render_intelligence_page():
             col_m3.metric("M-o-M Growth", "N/A")
     else:
         st.error(f"Failed to run EDA: {eda_results.get('error', 'Unknown Error') if eda_results else 'Unknown'}")
+        
+    st.markdown("---")
+    st.subheader("🤖 Enterprise AI Revenue Forecasting")
+    st.write("This model parses raw historical revenue strings utilizing Scikit-Learn `LinearRegression` plotting 30-day algorithmic momentum grids natively onto the front-end.")
+    
+    with st.spinner("Executing Scikit-Learn predictions..."):
+        ml_data = fetch_from_api("/api/v1/analytics/ml-revenue-forecast")
+        
+    if ml_data and "error" not in ml_data:
+        # Create a unified pandas DataFrame bridging the past and the future together cleanly
+        past = pd.DataFrame({
+            "Date": ml_data["historical_dates"],
+            "Historical Revenue": ml_data["historical_revenue"],
+            "Forecasted Target": [None] * len(ml_data["historical_dates"])
+        })
+        
+        future = pd.DataFrame({
+            "Date": ml_data["future_dates"],
+            "Historical Revenue": [None] * len(ml_data["future_dates"]),
+            "Forecasted Target": ml_data["future_revenue"]
+        })
+        
+        combined = pd.concat([past, future], ignore_index=True)
+        combined["Date"] = pd.to_datetime(combined["Date"])
+        combined.set_index("Date", inplace=True)
+        
+        st.line_chart(combined)
+    else:
+        st.warning("Not enough historical volatility mapping to generate a secure AI prediction.")
+
+    st.markdown("---")
+    st.subheader("🕵️ Anomaly Explorer")
+    st.write("Using AI and Statistical parameters to detect suspicious behavioral metrics.")
+    
+    with st.spinner("Analyzing data for anomalies..."):
+        anomalies_data = fetch_from_api("/api/v1/analytics/anomalies")
+        
+    if anomalies_data:
+        col_a1, col_a2 = st.columns(2)
+        with col_a1:
+            st.markdown("**Revenue Volatility Alerts**")
+            rev_anoms = anomalies_data.get("revenue_anomalies", [])
+            if rev_anoms:
+                st.dataframe(pd.DataFrame(rev_anoms), use_container_width=True, hide_index=True)
+            else:
+                st.success("No revenue anomalies detected.")
+                
+        with col_a2:
+            st.markdown("**Suspicious Order Flags**")
+            ord_anoms = anomalies_data.get("order_anomalies", [])
+            if ord_anoms:
+                st.dataframe(pd.DataFrame(ord_anoms), use_container_width=True, hide_index=True)
+            else:
+                st.success("No suspicious orders flagged.")
+    else:
+        st.error("Failed to load anomaly detection data.")
+
+def render_ai_assistant():
+    st.title("💬 AI Business Assistant")
+    st.markdown(
+        "Ask anything about your business — sales, orders, inventory, customers, profit & loss. "
+        "The AI reads your **live database** before every answer."
+    )
+
+    # ── Suggested starter questions ───────────────────────────────────────────
+    SUGGESTIONS = [
+        "What is today's total revenue?",
+        "Which product has sold the most units?",
+        "How many orders are currently active?",
+        "Who are my top 3 customers by spend?",
+        "Which products are low on stock?",
+        "Give me a profit/loss summary.",
+    ]
+
+    st.markdown("#### 💡 Suggested Questions")
+    suggestion_cols = st.columns(3)
+    if "prefill_query" not in st.session_state:
+        st.session_state.prefill_query = ""
+
+    for i, suggestion in enumerate(SUGGESTIONS):
+        col = suggestion_cols[i % 3]
+        if col.button(suggestion, key=f"suggestion_{i}", use_container_width=True):
+            st.session_state.prefill_query = suggestion
+
+    st.markdown("---")
+
+    # ── Session message history ────────────────────────────────────────────────
+    if "chat_messages" not in st.session_state:
+        st.session_state.chat_messages = [
+            {
+                "role": "assistant",
+                "content": (
+                    "👋 Hello! I'm your AI Business Analyst. I have real-time access to your "
+                    "sales, orders, inventory, and customer data.\n\n"
+                    "Ask me anything — like *'What were yesterday\'s sales?'* or "
+                    "*'Which products are running low?'*"
+                ),
+            }
+        ]
+
+    # ── Render existing chat history ──────────────────────────────────────────
+    for msg in st.session_state.chat_messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # ── Chat input (handles both typed and suggestion-prefilled) ─────────────
+    prefill = st.session_state.pop("prefill_query", "") if st.session_state.get("prefill_query") else ""
+
+    user_input = st.chat_input(
+        placeholder="Ask a business question (e.g. 'What are today\'s sales?')…"
+    ) or prefill
+
+    if user_input:
+        # Add user message to history
+        st.session_state.chat_messages.append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
+
+        # Call the backend AI endpoint (60s timeout — Gemini can take a few seconds)
+        with st.chat_message("assistant"):
+            with st.spinner("Analyzing your business data…"):
+                status_code, response = post_to_api_slow("/api/v1/analytics/chat", {"query": user_input})
+
+            if status_code == 200 and "answer" in response:
+                answer = response["answer"]
+            else:
+                answer = f"❌ Could not get a response from the AI. (Status: {status_code}, Detail: {response})"
+
+            st.markdown(answer)
+            st.session_state.chat_messages.append({"role": "assistant", "content": answer})
+
+    # ── Clear chat button ─────────────────────────────────────────────────────
+    if len(st.session_state.chat_messages) > 1:
+        st.markdown("---")
+        if st.button("🗑️ Clear Chat History", use_container_width=False):
+            st.session_state.chat_messages = []
+            st.rerun()
+
+
+def render_war_room():
+    st.title("🟢 Active Traffic Telemetry")
+    st.write("Watch as chaotic multi-threaded shoppers continuously bombard the API! Start the `scripts/traffic_simulator.py` terminal asynchronously.")
+    
+    # Create persistent empty containers for rewriting frame matrices dynamically
+    col1, col2 = st.columns(2)
+    metric_container = col1.empty()
+    table_container = col2.empty()
+    chart_container = st.empty()
+    
+    # We load standard variables to check length without destroying memory
+    if "war_room_started" not in st.session_state:
+        st.info("Click below to instantiate Web Sockets polling (Fast Polling Simulation).")
+        if st.button("Activate Live Streaming"):
+            st.session_state.war_room_started = True
+            st.rerun()
+    else:
+        if st.button("Halt Telemetry"):
+            del st.session_state.war_room_started
+            st.rerun()
+            
+        st.success("Socket Stream Initialized! Polling Database rapidly.")
+        while True:
+            # We fetch all orders and just slice off the latest 30 inside Streamlit thread
+            orders = fetch_from_api("/api/v1/orders/")
+            if orders:
+                df = pd.DataFrame(orders)
+                total_transactions = len(df)
+                
+                # Fetch recent rolling volume (Last 50 entries)
+                recent_df = df.tail(50).copy()
+                
+                with metric_container:
+                    st.metric("Total API Requests Processed (Live)", f"{total_transactions:,}")
+                    
+                with table_container:
+                    # Clean up matrix view natively
+                    st.dataframe(recent_df[['id', 'product_id', 'quantity', 'total_price', 'status']].sort_values("id", ascending=False).head(10), width="stretch", hide_index=True)
+                    
+                with chart_container:
+                    # Rolling transaction value over the last 50 queries
+                    st.area_chart(recent_df['total_price'].reset_index(drop=True))
+                    
+            time.sleep(1.5)  # Pause to avoid absolute API deadlock then rerun stream!
 
 if __name__ == "__main__":
     main()

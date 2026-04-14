@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ErpAnalytics | Smart Business Intelligence</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Styling -->
+    <link rel="stylesheet" href="/static/style.css?v=1.8">
+    <!-- Charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+</head>
+<body class="dark-theme">
+    <div class="app-container">
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="top-bar">
+                <div class="logo-nav-group">
+                    <div class="logo" style="margin-right: 32px;">
+                        <i data-lucide="layout-dashboard"></i>
+                        <span>ErpAnalytics</span>
+                    </div>
+                    <nav class="sidebar-nav">
+                        <ul>
+                            <li class="nav-item active" data-view="dashboard">
+                                <span>Dashboard</span>
+                            </li>
+                            <li class="nav-item" data-view="sales">
+                                <span>Sales Hub</span>
+                            </li>
+                            <li class="nav-item" data-view="analytics">
+                                <span>Analytics & Reports</span>
+                            </li>
+                            <li class="nav-item" data-view="whatif">
+                                <span>What-If Analysis</span>
+                            </li>
+                            <li class="nav-item" data-view="monitoring">
+                                <span>Live Monitoring</span>
+                            </li>
+                        </ul>
+                    </nav>
+                </div>
+                
+                <h1 id="view-title" style="display: none;">Dashboard</h1>
+
+                <div class="top-bar-actions">
+                    <button id="theme-toggle" class="theme-btn">
+                        <i data-lucide="sun" id="theme-icon"></i>
+                    </button>
+                </div>
+            </header>
+
+            <section id="content-view" class="view-container">
+                <!-- Dynamic Content Loads Here -->
+                <div class="loading-spinner">
+                    <div class="spinner"></div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Floating AI Assistant -->
+        <div class="ai-chat-trigger" id="ai-trigger">
+            <i data-lucide="message-square"></i>
+        </div>
+
+        <div class="ai-chat-container" id="ai-container">
+            <div class="chat-header">
+                <div class="chat-title">
+                    <i data-lucide="sparkles"></i>
+                    <span>AI Business Analyst</span>
+                </div>
+                <button class="close-chat" id="close-chat"><i data-lucide="x"></i></button>
+            </div>
+            <div class="chat-messages" id="chat-messages">
+                <div class="message assistant">
+                    👋 Hello! I'm your AI Business Analyst. Ask me anything about your data.
+                </div>
+            </div>
+            <div class="chat-input-area">
+                <input type="text" id="chat-input" placeholder="Type a message...">
+                <button id="send-chat"><i data-lucide="send"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/app.js?v=13.5"></script>
+</body>
+</html>
